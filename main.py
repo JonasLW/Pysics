@@ -6,11 +6,20 @@ import time
 # Note to self: Position, velocity, acceleration should be integer vectors.
 # However, calculations in between (such as normal vectors) should use floats.
 # Calculating collision with entire terrain may be inefficient. Consider tiling
+# Find a way to scale up size of pixels
+# Consider using pygame vectors instead of numpy
+# Figure out how to implement a camera
 #----ASSETS-------
 TEST_SPRITE = pg.image.load(os.path.join('Assets', 'TestSprite.png'))
-BACKGROUND = pg.image.load(os.path.join('Assets', 'Background.png'))
 TERRAIN = pg.image.load(os.path.join('Assets', 'Terrain.png'))
-FOREGROUND = pg.image.load(os.path.join('Assets', 'Foreground.png'))
+try:
+    BACKGROUND = pg.image.load(os.path.join('Assets', 'Background.png'))
+except:
+    BACKGROUND = pg.image.load(os.path.join('Assets', 'Terrain.png'))
+try:
+    FOREGROUND = pg.image.load(os.path.join('Assets', 'Foreground.png'))
+except:
+    FOREGROUND = pg.image.load(os.path.join('Assets', 'Terrain.png'))
 #TEST_SPRITE = pg.transform.rotate(TEST_SPRITE, 50)
 #----WINDOW SETUP----
 WIDTH, HEIGHT = TERRAIN.get_width(), TERRAIN.get_height()
@@ -31,7 +40,7 @@ class PhysicsSprite(pg.sprite.Sprite):
         self.image = image
         self.mask = pg.mask.from_surface(self.image)
         self.rect = self.mask.get_rect(left=left, top=top)
-        self.COM = np.array(self.rect.topleft) + np.array(self.mask.centroid())
+        self.COM = np.array(self.mask.centroid())
         #self.density = density
         self.m = 1
         self.s = np.array([left,top])
@@ -44,10 +53,11 @@ class PhysicsSprite(pg.sprite.Sprite):
         self.overlap_mask = None
         self.overlap_surface = None
 
-    def update_pos(self, force):
+    def update_pos(self, world, force):
         a = force/self.m
         ds = (self.v + 0.5*a).astype(int)
         normal = np.array([0, 0], dtype=float)
+        """
         if self.s[0] + ds[0] < 0:
             normal += np.array([1, 0])
         elif self.s[0] + ds[0] > WIDTH - self.rect.width:
@@ -57,6 +67,10 @@ class PhysicsSprite(pg.sprite.Sprite):
         elif self.s[1] + ds[1] > HEIGHT - self.rect.height:
             normal += np.array([0, -1])
         normal = normalize_2v(normal)
+        """
+        self.s += ds
+        normal = self.detect_collision(world)
+        self.s -= ds
 
         normal_acc = normal.dot(a)*normal
         normal_vel = normal.dot(self.v)*normal
@@ -69,8 +83,13 @@ class PhysicsSprite(pg.sprite.Sprite):
 
     def detect_collision(self, world):
         #self.collision = np.array(pg.sprite.collide_mask(self, world))
+        normal = np.array([0,0], dtype=float)
         self.overlap_mask = self.mask.overlap_mask(world.mask, (-1)*self.s)
         self.overlap_surface = self.overlap_mask.to_surface(unsetcolor=(0,0,0,0))
+        if self.overlap_mask.count() > 0:
+            POI = np.array(self.overlap_mask.centroid())
+            normal = normalize_2v(self.COM - POI)
+        return normal
 
 
 class Terrain(pg.sprite.Sprite):
@@ -103,7 +122,8 @@ def draw_window(world, player):
     if player.overlap_mask.count() > 0:
         WIN.blit(player.overlap_surface, player.s)
         print(player.overlap_mask.count())
-        time.sleep(0.5)
+    else:
+        print("---")
     pg.display.update()
 
 
@@ -140,7 +160,7 @@ def main():
         force += INPUT_FORCE*input_dir
         force[1] += GRAVITY
         force -= AIR_RESISTANCE*player.v
-        player.update_pos(force)
+        player.update_pos(world, force)
         player.detect_collision(world)
         draw_window(world, player)
     pg.quit()
