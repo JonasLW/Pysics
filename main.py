@@ -10,22 +10,26 @@ import time
 # Consider using pygame vectors instead of numpy
 # Figure out how to implement a camera
 # Implement objects with variable density?
-# Test different sprite. Time calculations. Test TOI calculation.
 # Implement friction
 # Find out why gravity is delayed
 # Note: When object is clipping, it is rapidly bouncing back and forth.
 #    Do something when force is not opposite normal vector
+# Test alternate methods for calculating normal vector (circle method)
+# Handle multiple points of impact
+# Note: Rotation makes FPS drop to 50 for larger objects
 #----ASSETS-------
-TEST_SPRITE = pg.image.load(os.path.join('Assets', 'TestSprite6.png'))
-TERRAIN = pg.image.load(os.path.join('Assets', 'Terrain2.png'))
+TEST_SPRITE = pg.image.load(os.path.join('Assets', 'TestSprite3.png'))
+TERRAIN = pg.image.load(os.path.join('Assets', 'Terrain3.png'))
 try:
-    BACKGROUND = pg.image.load(os.path.join('Assets', 'Background2.png'))
+    BACKGROUND = pg.image.load(os.path.join('Assets', 'Background3.png'))
 except:
     BACKGROUND = TERRAIN
 try:
-    FOREGROUND = pg.image.load(os.path.join('Assets', 'Foreground2.png'))
+    FOREGROUND = pg.image.load(os.path.join('Assets', 'Foreground3.png'))
 except:
     FOREGROUND = TERRAIN
+#---------
+#TEST_SPRITE = pg.transform.scale(TEST_SPRITE, (125, 108))
 #----WINDOW SETUP----
 WIDTH, HEIGHT = TERRAIN.get_width(), TERRAIN.get_height()
 WIN = pg.display.set_mode((WIDTH, HEIGHT))
@@ -41,12 +45,16 @@ FOREGROUND.convert()
 TEST_SPRITE.convert()
 """
 #----CONSTANTS----
+# Higher FPS gives better simulation, probably
+# Consider making forces and such independent of FPS
 FPS = 60
-VEL = 5
-GRAVITY = np.array([0, 0.5])
-AIR_RESISTANCE = 0.0005
-INPUT_FORCE = 1
-JUMP_FORCE = 100
+DT = 1/FPS
+G = 0.5
+GRAVITY = np.array([0, G])*DT*60
+AIR_RESISTANCE = 0.0005*DT*60
+INPUT_FORCE = 1*DT*60
+JUMP_FORCE = 100*DT*60
+STAT_THRESHOLD = 1  # Threshold speed for considering object static
 #-----------------
 
 class PhysicsSprite(pg.sprite.Sprite):
@@ -73,7 +81,9 @@ class PhysicsSprite(pg.sprite.Sprite):
         self.v = np.array([0, 0], dtype=float)
         self.angle = 0
         self.ang_vel = 0
-        self.rebound = 0.01
+        self.rebound = 0.5
+        self.friction_s = 0.1
+        self.friction_d = 0.0008  # Uncertain what are appropriate ranges for these
         self.collision = None
         self.body_overlap = None
         self.overlap_surface = None
@@ -94,35 +104,51 @@ class PhysicsSprite(pg.sprite.Sprite):
         self.s = np.array(self.rect.topleft)
         self.rot_mask = pg.mask.from_surface(self.rot_image)
         self.rot_boundary_mask = pg.mask.from_surface(self.rot_boundary_image)
-        # Detect and resolve collision. Assumes TOI is end of frame. TODO: calculate TOI
+        # Detect and resolve collision.
         normal, POI, depth = self.detect_collision(world)
-        if normal[0] != 0 or normal[1] != 0:
+        n_tangent = rotate_2v(normal, -90)
+        if not (normal[0] == 0 and normal[1] == 0):
             r = POI - self.COM
-            tangent = rotate_2v(r, -90)
+            r_tangent = rotate_2v(r, -90)
             r_para_sq = r.dot(r) - (r.dot(normal))*(r.dot(normal))  # comp. of r perp to normal
-            POI_vel = self.v + tangent*self.ang_vel*np.pi/180
-            e = self.rebound*world.rebound
-            impulse = -(1+e)*POI_vel.dot(normal)/(1/self.m + r_para_sq/self.I)
-            # Find TOI
+            POI_vel = self.v + r_tangent*self.ang_vel*np.pi/180
             POI_normal_spd = abs(POI_vel.dot(normal))  # Not sure if abs is necessary. If this is positive, something is wrong
-            dt = depth/POI_normal_spd
-            TOI = 1 - dt
+            POI_tangent_spd = POI_vel.dot(n_tangent)
+            # Find TOI
+            t_rwnd = depth/POI_normal_spd
+            TOI = 1 - t_rwnd
             if 0 < TOI < 0.9:
                 # Move back to start of frame, then forward to TOI
+                # Ideally, would re-calculate POI and normal at TOI
                 self.COM -= start_vel + 0.5*acc
                 self.angle -= self.ang_vel
                 self.COM += start_vel*TOI + 0.5*acc*TOI*TOI
                 self.angle += self.ang_vel*TOI
+            # Identify stationary contact here. Apply "stopping impulse"
             # Apply the impulse
+            e = self.rebound*world.rebound
+            impulse = -(1+e)*POI_vel.dot(normal)/(1/self.m + r_para_sq/self.I)
             self.v += normal*impulse/self.m
             self.ang_vel -= cross_2v(r, normal)*impulse*180/(np.pi*self.I)
+            # Apply friction
+            #    trouble because normal vector isn't quite right. Makes friction messy
+            tangent_force = force.dot(n_tangent)
+            if abs(POI_tangent_spd) >= STAT_THRESHOLD or abs(tangent_force) > self.friction_s*impulse:
+                friction_impulse = -np.sign(POI_tangent_spd)*self.friction_d*impulse
+                stopping_impulse = -POI_tangent_spd/(1/self.m + r.dot(normal)*r.dot(normal)/self.I)
+                if abs(friction_impulse) > abs(stopping_impulse):
+                    friction_impulse = stopping_impulse
+            else:
+                friction_impulse = -tangent_force
+            self.v += n_tangent*friction_impulse/self.m
+            self.ang_vel -= cross_2v(r, n_tangent)*friction_impulse*180/(np.pi*self.I) # Not sure what is right sign here
             if 0 < TOI < 0.9:
-                self.COM += self.v*dt + 0.5*acc*dt*dt
-                self.angle += self.ang_vel*dt
+                self.COM += self.v*t_rwnd + 0.5*acc*t_rwnd*t_rwnd
+                self.angle += self.ang_vel*t_rwnd
                 self.rot_image = pg.transform.rotate(self.image, self.angle)
                 self.rot_boundary_image = pg.transform.rotate(self.boundary_image, self.angle)
                 self.rect = self.rot_image.get_rect(center=center_pos)
-            if TOI < 0:
+            if TOI < 0 or TOI > 1:
                 # Dirty hack to avoid clipping. Does not preserve energy
                 if depth < 20:
                     self.COM += depth*normal
@@ -256,7 +282,7 @@ def cross_2v(a, b):
 
 
 def draw_window(world, player):
-    start = pg.time.get_ticks()
+    #start = pg.time.get_ticks()
     WIN.blit(world.background, player.prev_rect, area=player.prev_rect)
     WIN.blit(world.terrain, player.prev_rect, area=player.prev_rect)
     WIN.blit(player.rot_image, player.rect)
@@ -264,8 +290,8 @@ def draw_window(world, player):
     if player.body_overlap.count() > 0:
         WIN.blit(player.overlap_surface, player.rect, area=player.rect)
     pg.display.update()
-    end = pg.time.get_ticks()
-    print(f"Draw time: {end-start:.2f} ms")
+    #end = pg.time.get_ticks()
+    #print(f"Draw time: {end-start:.2f} ms")
 
 
 def get_input_dir(keys_pressed):
@@ -283,13 +309,13 @@ def get_input_dir(keys_pressed):
 
 def main():
     world = Terrain(BACKGROUND, TERRAIN, FOREGROUND)
-    player = PhysicsSprite(TEST_SPRITE, 0.01, 100, 100)
+    player = PhysicsSprite(TEST_SPRITE, 0.01, 400, 100)
 
     clock = pg.time.Clock()
     running = True
     while running:
         clock.tick(FPS)
-        print(f"MSPF: {clock.get_time()}, FPS: {clock.get_fps():.2f}")
+        #print(f"MSPF: {clock.get_time()}, FPS: {clock.get_fps():.2f}")
         force = np.array([0 ,0], dtype=float)
         keys_pressed = pg.key.get_pressed()
         input_dir = get_input_dir(keys_pressed)
@@ -307,7 +333,6 @@ def main():
         force += GRAVITY*player.m
         force -= AIR_RESISTANCE*(player.rect.width/10)*(player.rect.height/10)*player.v
         player.update(world, force)
-        player.detect_collision(world)
         draw_window(world, player)
     pg.quit()
 
