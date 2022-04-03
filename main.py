@@ -20,35 +20,7 @@ import time
 #    How, then, can I also have sprites with multiple static parts?
 # Handle multiple points of impact
 # Handle static contact ("sleeping")
-#----ASSETS-------
-STAGE = 'Level-Test2'
-SOBEL_TEST = pg.image.load(os.path.join('Assets', 'SobelTest2.png'))
-TEST_SPRITE = pg.image.load(os.path.join('Assets', 'TestSprite6.png'))
-TERRAIN = pg.image.load(os.path.join('Assets', STAGE+'.png'))
-try:
-    BACKGROUND = pg.image.load(os.path.join('Assets', STAGE+'-bg.png'))
-except:
-    BACKGROUND = TERRAIN
-try:
-    FOREGROUND = pg.image.load(os.path.join('Assets', STAGE+'fg.png'))
-except:
-    FOREGROUND = TERRAIN
-#---------
-#TEST_SPRITE = pg.transform.scale(TEST_SPRITE, (125, 108))
-#----WINDOW SETUP----
-WIDTH, HEIGHT = TERRAIN.get_width(), TERRAIN.get_height()
-WIN = pg.display.set_mode((WIDTH, HEIGHT))
-WIN.blit(BACKGROUND, (0,0))
-WIN.blit(TERRAIN, (0,0))
-WIN.blit(FOREGROUND, (0,0))
-pg.display.set_caption("Test game")
-"""
-# This does not seem to help?...
-TERRAIN.convert()
-BACKGROUND.convert()
-FOREGROUND.convert()
-TEST_SPRITE.convert()
-"""
+# Make a branch with numpy arrays instead of bitmasks
 #----CONSTANTS----
 # Higher FPS gives better simulation, probably
 # Consider making forces and such independent of FPS
@@ -90,9 +62,9 @@ class PhysicsSprite(pg.sprite.Sprite):
         self.v = np.array([0, 0], dtype=float)
         self.angle = 0
         self.ang_vel = 0
-        self.rebound = 0.2
-        self.friction_s = 0.95
-        self.friction_d = 0.9  # Uncertain what are appropriate ranges for these
+        self.rebound = 0.3
+        self.friction_s = 0.5
+        self.friction_d = 0.4  # Uncertain what are appropriate ranges for these
         self.collision = None
         self.body_overlap = None
         self.overlap_surface = None
@@ -130,6 +102,7 @@ class PhysicsSprite(pg.sprite.Sprite):
         if self.stationary:
             return
         # ---------------
+        # Rotate sprites and masks
         rot_ctc_vec = rotate_2v(self.ctc_vec, -self.angle)
         center_pos = self.COM + np.array(rot_ctc_vec)
         self.rot_image = pg.transform.rotate(self.image, self.angle*180/PI)
@@ -417,13 +390,13 @@ def cross_2v(a, b):
     return a[0]*b[1] - a[1]*b[0]
 
 
-def draw_window(world, player):
+def draw_window(window, world, player):
     # Current time use: 7 ms per call
     #start = pg.time.get_ticks()
-    WIN.blit(world.background, player.prev_rect, area=player.prev_rect)
-    WIN.blit(world.terrain, player.prev_rect, area=player.prev_rect)
-    WIN.blit(player.rot_image, player.rect)
-    WIN.blit(world.foreground, player.prev_rect, area=player.prev_rect)
+    window.blit(world.background, player.prev_rect, area=player.prev_rect)
+    window.blit(world.terrain, player.prev_rect, area=player.prev_rect)
+    window.blit(player.rot_image, player.rect)
+    window.blit(world.foreground, player.prev_rect, area=player.prev_rect)
     pg.display.update()
     #end = pg.time.get_ticks()
     #print(f"MSPB: {end-start:.2f} ms")
@@ -445,9 +418,38 @@ def get_input_dir(keys_pressed):
 
 
 def main():
+    #----ASSETS-------
+    STAGE = 'ocean'
+    SOBEL_TEST = pg.image.load(os.path.join('Assets', 'SobelTest2.png'))
+    TEST_SPRITE = pg.image.load(os.path.join('Assets', 'ocean-plr.png'))
+    TERRAIN = pg.image.load(os.path.join('Assets', STAGE+'.png'))
+    try:
+        BACKGROUND = pg.image.load(os.path.join('Assets', STAGE+'-bg.png'))
+    except:
+        BACKGROUND = TERRAIN
+    try:
+        FOREGROUND = pg.image.load(os.path.join('Assets', STAGE+'-fg.png'))
+    except:
+        FOREGROUND = TERRAIN
+    #---------
+    #TEST_SPRITE = pg.transform.scale(TEST_SPRITE, (125, 108))
+    #----WINDOW SETUP----
+    WIDTH, HEIGHT = TERRAIN.get_width(), TERRAIN.get_height()
+    WIN = pg.display.set_mode((WIDTH, HEIGHT))
+    WIN.blit(BACKGROUND, (0,0))
+    WIN.blit(TERRAIN, (0,0))
+    WIN.blit(FOREGROUND, (0,0))
+    pg.display.set_caption("Test game")
+    """
+    # This does not seem to help?...
+    TERRAIN.convert()
+    BACKGROUND.convert()
+    FOREGROUND.convert()
+    TEST_SPRITE.convert()
+    """
+
     world = Terrain(BACKGROUND, TERRAIN, FOREGROUND)
     player = PhysicsSprite(TEST_SPRITE, 0.01, 400, 100)
-
     clock = pg.time.Clock()
     running = True
     while running:
@@ -472,7 +474,7 @@ def main():
         # Hacky air resistance against rotation
         player.ang_vel -= AIR_RESISTANCE*(player.rect.width/50)*(player.rect.height/50)*player.ang_vel
         player.update(world, force)
-        draw_window(world, player)
+        draw_window(WIN, world, player)
     pg.quit()
 
 
