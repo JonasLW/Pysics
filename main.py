@@ -23,7 +23,7 @@ import time
 #----ASSETS-------
 STAGE = 'Level-Test2'
 SOBEL_TEST = pg.image.load(os.path.join('Assets', 'SobelTest2.png'))
-TEST_SPRITE = pg.image.load(os.path.join('Assets', 'TestSprite7.png'))
+TEST_SPRITE = pg.image.load(os.path.join('Assets', 'TestSprite6.png'))
 TERRAIN = pg.image.load(os.path.join('Assets', STAGE+'.png'))
 try:
     BACKGROUND = pg.image.load(os.path.join('Assets', STAGE+'-bg.png'))
@@ -208,8 +208,6 @@ class PhysicsSprite(pg.sprite.Sprite):
             """
         else:
             pass
-        # Hacky air resistance against rotation
-        self.ang_vel -= AIR_RESISTANCE*(self.rect.width/50)*(self.rect.height/50)*self.ang_vel
         #end = pg.time.get_ticks()
         #if end-start > 10:
         #    print(f"MSPU: {end-start:.2f}")
@@ -447,7 +445,6 @@ def get_input_dir(keys_pressed):
 
 
 def main():
-    get_normal_map(SOBEL_TEST)
     world = Terrain(BACKGROUND, TERRAIN, FOREGROUND)
     player = PhysicsSprite(TEST_SPRITE, 0.01, 400, 100)
 
@@ -472,6 +469,8 @@ def main():
         force += INPUT_FORCE*input_dir*player.m*(input_dir.dot(player.v) < MAX_SPEED)
         force += GRAVITY*player.m*(not player.stationary)
         force -= AIR_RESISTANCE*(player.rect.width/10)*(player.rect.height/10)*player.v
+        # Hacky air resistance against rotation
+        player.ang_vel -= AIR_RESISTANCE*(player.rect.width/50)*(player.rect.height/50)*player.ang_vel
         player.update(world, force)
         draw_window(world, player)
     pg.quit()
